@@ -1,7 +1,7 @@
 {
   "name": "story-os",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.3",
   "description": "オフラインで動作する小説執筆支援アプリ",
   "main": "dist-electron/electron/main.cjs",
   "type": "module",
