@@ -1,0 +1,92 @@
+{
+  "name": "story-os",
+  "private": true,
+  "version": "0.2.1",
+  "description": "オフラインで動作する小説執筆支援アプリ",
+  "main": "dist-electron/electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "typecheck": "tsc -b --pretty false",
+    "test:stage2": "tsx scripts/stage2-validation.ts",
+    "test:stage3": "tsx scripts/stage3-validation.ts",
+    "test:electron": "tsx scripts/electron-validation.ts",
+    "test:character-sheet": "tsx scripts/character-sheet-validation.ts",
+    "test:sync": "tsx scripts/sync-validation.ts",
+    "electron:compile": "tsc -p tsconfig.electron.json && node scripts/prepare-electron-dist.mjs",
+    "electron:icon": "node scripts/create-electron-icon.mjs",
+    "electron:watch": "tsc -p tsconfig.electron.json --watch --preserveWatchOutput",
+    "dev:electron": "npm run electron:compile && concurrently -k \"npm:dev\" \"npm:electron:watch\" \"wait-on http://localhost:5173 && cross-env STORYOS_ELECTRON_DEV=1 electron .\"",
+    "build:electron": "npm run electron:icon && npm run build && npm run electron:compile",
+    "start:electron": "npm run build:electron && electron .",
+    "dist:win": "npm run build:electron && electron-builder --win nsis portable",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "dexie": "^4.0.11",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.1"
+  },
+  "build": {
+    "appId": "com.storyos.desktop",
+    "productName": "Story OS",
+    "asar": true,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/electron/**/*",
+      "dist-electron/src/shared/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "icon.png",
+      "signExecutable": false,
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "executableName": "Story OS"
+    },
+    "nsis": {
+      "artifactName": "Story-OS-Setup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Story OS",
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "Story-OS-Portable-${version}-${arch}.${ext}"
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/react": "^19.0.3",
+    "@types/react-dom": "^19.0.2",
+    "concurrently": "^9.2.0",
+    "cross-env": "^7.0.3",
+    "electron": "^43.1.1",
+    "electron-builder": "^26.0.12",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-refresh": "^0.4.16",
+    "fake-indexeddb": "^6.0.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.9.5",
+    "sharp": "^0.34.3",
+    "tsx": "^4.20.0",
+    "typescript": "~5.7.2",
+    "typescript-eslint": "^8.18.2",
+    "vite": "^6.0.5",
+    "wait-on": "^8.0.4"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-electron/
+release/
+release-*/
+*.log
+vite-smoke.*.log
+.env
+.env.local
