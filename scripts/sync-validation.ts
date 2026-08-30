@@ -10,6 +10,7 @@ import {
 import {
   observeDatabaseMutations,
   prepareLocalSync,
+  replaceLocalWithDrive,
 } from "../src/sync/storage";
 
 const local = emptyCollections(),
@@ -92,6 +93,31 @@ await db.syncMeta.put({
 const prepared = await prepareLocalSync();
 assert.equal(prepared.tombstones[0]?.id, "deleted-scene");
 assert.equal(prepared.tombstones[0]?.collection, "scenes");
+const driveOnlyCollections = emptyCollections();
+driveOnlyCollections.works = [
+  {
+    id: "drive-only-work",
+    title: "drive-only",
+    createdAt: "2026-02-01T00:00:00.000Z",
+    updatedAt: "2026-02-01T00:00:00.000Z",
+  },
+];
+await replaceLocalWithDrive(
+  {
+    appName: "Story OS",
+    schemaVersion: 1,
+    exportedAt: "2026-02-01T00:00:00.000Z",
+    collections: driveOnlyCollections,
+    tombstones: [],
+  },
+  "drive-file-id",
+);
+assert.equal(await db.works.get("mutation-work"), undefined);
+assert.equal((await db.works.get("drive-only-work"))?.title, "drive-only");
+assert.equal(
+  (await db.syncMeta.get("google-drive"))?.driveFileId,
+  "drive-file-id",
+);
 await db.close();
 
 console.log(

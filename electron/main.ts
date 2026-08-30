@@ -19,6 +19,8 @@ import type {
   MenuAction,
   NativeSaveRequest,
 } from "../src/shared/electron-api.js";
+import { GoogleAuthManager } from "./google-auth.js";
+import { GoogleDriveClient } from "./google-drive.js";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "storyos",
@@ -37,8 +39,12 @@ const isDev = !app.isPackaged && process.env.STORYOS_ELECTRON_DEV === "1",
     process.env.STORYOS_CHARACTER_SMOKE_TEST === "1" ||
     process.env.STORYOS_EDITOR_SMOKE_TEST === "1" ||
     process.env.STORYOS_SETTINGS_SMOKE_TEST === "1",
-  MAX_FILE_BYTES = 512 * 1024 * 1024;
+  MAX_FILE_BYTES = 512 * 1024 * 1024,
+  GOOGLE_DRIVE_ENABLED = false;
 app.setName("Story OS");
+if (isSmokeTest && process.env.STORYOS_SMOKE_USER_DATA) {
+  app.setPath("userData", path.resolve(process.env.STORYOS_SMOKE_USER_DATA));
+}
 if (isDev && !isSmokeTest) {
   app.setPath(
     "userData",
@@ -48,6 +54,8 @@ if (isDev && !isSmokeTest) {
 let mainWindow: BrowserWindow | null = null,
   allowClose = false,
   lastBackupDir = "";
+const googleAuth = new GoogleAuthManager(),
+  googleDrive = new GoogleDriveClient(googleAuth);
 interface WindowState {
   x: number;
   y: number;
@@ -302,30 +310,12 @@ async function createWindow() {
           const result = await win.webContents.executeJavaScript(`
             (async () => {
               const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-              const setValue = (element, value) => {
-                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(element, value);
-                element.dispatchEvent(new Event('input', { bubbles: true }));
-              };
-              for (let index = 0; index < 30 && !document.querySelector('.drive-sync > button'); index++)
+              for (let index = 0; index < 30 && !document.querySelector('#root'); index++)
                 await wait(100);
-              document.querySelector('.drive-sync > button')?.click();
-              await wait(200);
-              const dialog = document.querySelector('.drive-settings-dialog');
-              const inputs = dialog?.querySelectorAll('input');
-              if (!dialog || inputs?.length !== 2) return { success: false, stage: 'dialog', text: document.body.innerText, href: location.href, readyState: document.readyState };
-              setValue(inputs[0], '123-example.apps.googleusercontent.com');
-              await wait(50);
-              setValue(inputs[1], 'https://example.vercel.app/oauth-callback.html');
-              await wait(50);
-              dialog.querySelector('footer .primary')?.click();
-              await wait(100);
               return {
-                success: !document.querySelector('.drive-settings-dialog') &&
-                  document.querySelector('.drive-sync')?.textContent?.includes('未接続'),
-                stage: 'saved',
-                syncText: document.querySelector('.drive-sync')?.textContent,
-                dialogOpen: Boolean(document.querySelector('.drive-settings-dialog')),
-                error: document.querySelector('.drive-settings-error')?.textContent
+                success: !document.querySelector('.drive-sync') &&
+                  !document.querySelector('.drive-settings-dialog'),
+                stage: 'drive-disabled'
               };
             })()
           `);
@@ -474,94 +464,47 @@ function setupIpc() {
     const error = await shell.openPath(app.getPath("userData"));
     return error ? { ok: false, error } : { ok: true };
   });
-  ipcMain.handle("google:authorize", async (_event, value: unknown) => {
-    if (!value || typeof value !== "object")
-      return { error: "OAuth設定が不正です。" };
-    const request = value as Record<string, unknown>,
-      clientId = String(request.clientId || ""),
-      redirectUri = String(request.redirectUri || ""),
-      state = String(request.state || "");
-    if (
-      !/^[\w.-]+\.apps\.googleusercontent\.com$/.test(clientId) ||
-      !state ||
-      !(
-        /^https:\/\//.test(redirectUri) ||
-        /^http:\/\/localhost(?::\d+)?\//.test(redirectUri)
-      )
-    )
-      return {
-        error: "Google OAuth Client IDまたはリダイレクトURIが不正です。",
-      };
-    const auth = new BrowserWindow({
-      parent: mainWindow || undefined,
-      modal: true,
-      width: 520,
-      height: 720,
-      show: false,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: true,
-      },
-    });
-    const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-    url.searchParams.set("client_id", clientId);
-    url.searchParams.set("redirect_uri", redirectUri);
-    url.searchParams.set("response_type", "token");
-    url.searchParams.set(
-      "scope",
-      "https://www.googleapis.com/auth/drive.appdata",
+  if (GOOGLE_DRIVE_ENABLED) {
+    ipcMain.handle("google:auth-status", (_event, value: unknown) =>
+      googleAuth.status(typeof value === "string" ? value.trim() : ""),
     );
-    url.searchParams.set("include_granted_scopes", "true");
-    url.searchParams.set("state", state);
-    url.searchParams.set("prompt", "select_account");
-    return await new Promise((resolve) => {
-      let settled = false;
-      const finish = (result: object) => {
-        if (settled) return;
-        settled = true;
-        if (!auth.isDestroyed()) auth.destroy();
-        resolve(result);
-      };
-      const inspect = (_event: Electron.Event, target: string) => {
-        const actual = new URL(target),
-          expected = new URL(redirectUri);
-        if (
-          actual.origin !== expected.origin ||
-          actual.pathname !== expected.pathname
-        )
-          return;
-        _event.preventDefault();
-        const hash = new URL(target).hash.slice(1),
-          params = new URLSearchParams(hash);
-        if (params.get("state") !== state)
-          return finish({ error: "OAuth stateが一致しません。" });
-        const accessToken = params.get("access_token");
-        finish(
-          accessToken
-            ? {
-                accessToken,
-                expiresIn: Number(params.get("expires_in") || 3600),
-              }
-            : {
-                error:
-                  params.get("error_description") ||
-                  params.get("error") ||
-                  "Google認証に失敗しました。",
-              },
-        );
-      };
-      auth.webContents.on("will-redirect", inspect);
-      auth.webContents.on("will-navigate", inspect);
-      auth.on("closed", () =>
-        finish({ error: "Google認証がキャンセルされました。" }),
+    ipcMain.handle("google:begin-connection", (_event, value: unknown) =>
+      googleAuth.beginConnection(typeof value === "string" ? value.trim() : ""),
+    );
+    ipcMain.handle("google:commit-connection", () =>
+      googleAuth.commitPending(),
+    );
+    ipcMain.handle("google:cancel-connection", () =>
+      googleAuth.cancelPending(),
+    );
+    ipcMain.handle("google:disconnect", () => googleAuth.disconnect());
+    ipcMain.handle("google:drive-find", (_event, usePending: unknown) =>
+      googleDrive.findSyncFile(usePending === true),
+    );
+    ipcMain.handle(
+      "google:drive-download",
+      (_event, fileId: unknown, usePending: unknown) => {
+        if (typeof fileId !== "string")
+          throw new Error("Drive file IDが不正です。");
+        return googleDrive.download(fileId, usePending === true);
+      },
+    );
+    ipcMain.handle("google:drive-upload", (_event, value: unknown) => {
+      if (!value || typeof value !== "object")
+        throw new Error("Drive upload requestが不正です。");
+      const request = value as Record<string, unknown>;
+      return googleDrive.upload(
+        request.envelope,
+        typeof request.fileId === "string" ? request.fileId : undefined,
+        request.usePending === true,
       );
-      auth.once("ready-to-show", () => auth.show());
-      void auth
-        .loadURL(url.toString())
-        .catch((error) => finish({ error: String(error) }));
     });
-  });
+    ipcMain.handle("google:save-switch-backup", (_event, value: unknown) => {
+      if (typeof value !== "string")
+        throw new Error("バックアップ内容が不正です。");
+      return googleDrive.saveSwitchBackup(value);
+    });
+  }
   ipcMain.handle("file:save", async (_event, value: unknown) => {
     if (!validSaveRequest(value))
       return { canceled: false, error: "保存内容が不正または大きすぎます。" };

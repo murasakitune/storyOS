@@ -1,5 +1,6 @@
 import { validateSyncEnvelope } from "./merge";
 import type { DriveSyncEnvelope } from "./types";
+import type { GoogleAuthStatus } from "../shared/electron-api";
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
 export const DRIVE_FILE_NAME = "story-os-sync-v1.json";
@@ -15,12 +16,40 @@ interface DriveFile {
   modifiedTime?: string;
 }
 
+export async function getElectronGoogleAuthStatus(): Promise<GoogleAuthStatus | null> {
+  if (!window.electronAPI) return null;
+  return window.electronAPI.getGoogleAuthStatus(clientId());
+}
+
+export async function beginElectronGoogleConnection() {
+  if (!window.electronAPI) throw new Error("Electron版でのみ利用できます。");
+  return window.electronAPI.beginGoogleConnection(clientId());
+}
+
+export async function commitElectronGoogleConnection() {
+  if (!window.electronAPI) throw new Error("Electron版でのみ利用できます。");
+  return window.electronAPI.commitGoogleConnection();
+}
+
+export async function cancelElectronGoogleConnection() {
+  await window.electronAPI?.cancelGoogleConnection();
+}
+
+export async function disconnectElectronGoogle() {
+  if (!window.electronAPI) throw new Error("Electron版でのみ利用できます。");
+  await window.electronAPI.disconnectGoogle();
+}
+
 const clientId = () =>
   String(
-    import.meta.env.VITE_GOOGLE_CLIENT_ID ||
-      localStorage.getItem("storyos-google-client-id") ||
-      "",
+    window.electronAPI
+      ? import.meta.env.VITE_GOOGLE_DESKTOP_CLIENT_ID || ""
+      : import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+          localStorage.getItem("storyos-google-client-id") ||
+          "",
   ).trim();
+const webClientId = () =>
+  String(import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim();
 const redirectUri = () =>
   String(
     import.meta.env.VITE_GOOGLE_REDIRECT_URI ||
@@ -30,6 +59,14 @@ const redirectUri = () =>
 
 export function getGoogleDriveConfiguration() {
   return { clientId: clientId(), redirectUri: redirectUri() };
+}
+
+export function googleDriveConfigurationError() {
+  if (!window.electronAPI) return "";
+  if (!clientId()) return "Desktop app用OAuth Client IDが設定されていません。";
+  if (webClientId() && clientId() === webClientId())
+    return "Electron版にWeb用OAuth Client IDが設定されています。Google Cloudで種類「デスクトップ アプリ」の別Client IDを作成してください。";
+  return "";
 }
 
 export function saveGoogleDriveConfiguration(
@@ -55,7 +92,8 @@ export function saveGoogleDriveConfiguration(
 export function googleDriveConfigured() {
   return (
     Boolean(clientId()) &&
-    (!window.electronAPI ||
+    !googleDriveConfigurationError() &&
+    (Boolean(window.electronAPI) ||
       /^https:\/\//.test(redirectUri()) ||
       /^http:\/\/localhost/.test(redirectUri()))
   );
@@ -137,17 +175,8 @@ export async function authorizeGoogleDrive(): Promise<StoredToken> {
     throw new Error(
       "Google Drive同期が未設定です。VITE_GOOGLE_CLIENT_IDとリダイレクトURIを設定してください。",
     );
-  if (window.electronAPI) {
-    const state = crypto.randomUUID(),
-      result = await window.electronAPI.authorizeGoogle({
-        clientId: clientId(),
-        redirectUri: redirectUri(),
-        state,
-      });
-    if (!result.accessToken)
-      throw new Error(result.error || "Google認証に失敗しました。");
-    return storeToken(result.accessToken, result.expiresIn);
-  }
+  if (window.electronAPI)
+    throw new Error("Electron認証はmain processから開始してください。");
   return authorizeBrowser();
 }
 
@@ -174,7 +203,10 @@ async function driveFetch(token: string, url: string, init?: RequestInit) {
 
 export async function findDriveSyncFile(
   token: string,
+  usePending = false,
 ): Promise<DriveFile | null> {
+  if (window.electronAPI)
+    return window.electronAPI.findGoogleDriveFile(usePending);
   const params = new URLSearchParams({
     spaces: "appDataFolder",
     q: `name='${DRIVE_FILE_NAME}' and trashed=false`,
@@ -193,7 +225,18 @@ export async function findDriveSyncFile(
   );
 }
 
-export async function downloadDriveSync(token: string, fileId: string) {
+export async function downloadDriveSync(
+  token: string,
+  fileId: string,
+  usePending = false,
+) {
+  if (window.electronAPI) {
+    const value = await window.electronAPI.downloadGoogleDriveFile(
+      fileId,
+      usePending,
+    );
+    return validateSyncEnvelope(value);
+  }
   const response = await driveFetch(
     token,
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
@@ -205,7 +248,14 @@ export async function uploadDriveSync(
   token: string,
   envelope: DriveSyncEnvelope,
   fileId?: string,
+  usePending = false,
 ): Promise<string> {
+  if (window.electronAPI)
+    return window.electronAPI.uploadGoogleDriveFile({
+      envelope,
+      fileId,
+      usePending,
+    });
   const content = JSON.stringify(envelope);
   if (fileId) {
     await driveFetch(

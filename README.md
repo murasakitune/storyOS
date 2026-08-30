@@ -1,5 +1,7 @@
 # Story OS
 
+> Google Drive連携は0.2.8で一時休止しています。Web版・Electron版ともUI、自動同期、手動同期は起動せず、ローカル保存とJSONバックアップのみ利用できます。将来の再実装に備えて同期モジュールと既存の暗号化済み認証情報は保持します。
+
 Story OS は、作品・章・シーン・本文に加え、設定資料、プロット、伏線、時系列、点検を一か所で管理できる、オフライン中心の小説執筆支援アプリです。ブラウザ/PWA版とWindows向けElectron版を同じ画面・データ形式で提供します。本文や分析結果を外部へ送信せず、生成AI、クラウドDB、実行時CDNを使用しません。
 
 Google Drive同期を有効にした場合に限り、暗号化されたHTTPS通信でGoogle Driveの非表示領域`appDataFolder`へ同期データを送受信します。それ以外の外部送信はありません。
@@ -39,7 +41,7 @@ Viteの環境変数はビルド時に埋め込まれるため、変更後は再�
 
 ## Google Drive同期
 
-画面右上（狭い画面では右下）の「Drive接続」を押してGoogleアカウントを選択します。権限は`https://www.googleapis.com/auth/drive.appdata`だけを要求します。同期ファイルはGoogle Drive UIから見えないアプリ専用領域へ保存されます。
+画面右上（狭い画面では右下）の「Drive」を押して接続状態を確認します。同期ファイルはGoogle Drive UIから見えないアプリ専用領域`appDataFolder`へ保存されます。同期データの権限は`https://www.googleapis.com/auth/drive.appdata`、接続アカウント表示には`openid email`だけを使用します。
 
 - 接続済みセッションのアプリ起動時にダウンロード
 - タブへ戻ったときにダウンロード
@@ -50,20 +52,28 @@ Viteの環境変数はビルド時に埋め込まれるため、変更後は再�
 - 削除は墓標として同期し、別端末で復活しないよう処理
 - 作品、章、シーン情報、本文、シーン設計、キャラクター等を別コレクションで保持
 
-Googleのブラウザ向けトークンは短期間だけ有効で、refresh tokenをブラウザへ保存しない安全設計です。期限切れまたはブラウザ完全終了後は「Drive接続」をもう一度押してください。再接続後は通常の自動同期へ戻ります。オフライン中の変更はIndexedDBへ残り、接続回復後の同期でマージされます。
+Web版のトークンは短期間だけ有効で、refresh tokenをブラウザへ保存しない安全設計です。期限切れまたはブラウザ完全終了後は再接続が必要です。Electron版はAuthorization Code Flow + PKCEとloopback callbackを使用し、refresh tokenをmain processでOSの資格情報暗号化機構（Electron `safeStorage`、WindowsではDPAPI）により暗号化して保存します。renderer、LocalStorage、IndexedDBへrefresh tokenやaccess tokenを保存しません。起動後は保存済みrefresh tokenからaccess tokenを自動更新します。
+
+Electron版で「アカウントを変更」を選ぶと自動同期を停止し、新しいアカウントのDriveデータを確認してから、ローカルデータを安全にマージするか、切替前バックアップを作成してDriveデータへ置き換えるかを選択できます。選択前に新しいアカウントへデータをアップロードすることはありません。「Drive連携を解除」は認証情報だけを削除し、ローカル作品を保持します。
 
 ### Google Cloud側の設定
 
 1. Google Cloud Consoleでプロジェクトを作成する。
 2. Google Drive APIを有効化する。
 3. OAuth同意画面を設定し、開発中は利用するGoogleアカウントをテストユーザーへ追加する。
-4. OAuth Client IDを「ウェブアプリケーション」で作成する。
-5. 承認済みJavaScript生成元へVercelのオリジンと`http://localhost:5173`を追加する。
-6. 承認済みリダイレクトURIへ`https://実際のVercelドメイン/oauth-callback.html`と`http://localhost:5173/oauth-callback.html`を追加する。
+4. Web版用OAuth Client IDを「ウェブアプリケーション」で作成する。
+5. Web Clientの承認済みJavaScript生成元へVercelのオリジンと`http://localhost:5173`を追加する。
+6. Web Clientの承認済みリダイレクトURIへ`https://実際のVercelドメイン/oauth-callback.html`と`http://localhost:5173/oauth-callback.html`を追加する。
+7. Electron版用に、別のOAuth Client IDを「デスクトップ アプリ」として作成する。loopback URIは実行時に`http://127.0.0.1:<一時ポート>/oauth2/callback`を使用し、Web ClientのリダイレクトURI欄へ登録しない。
+8. `.env.local`または配布ビルド環境へ次を設定してから再ビルドする。
 
-Electron版も同じClient IDとDrive同期サービスを使用します。製品ビルドにはHTTPSの`VITE_GOOGLE_REDIRECT_URI`が必要です。
+```text
+VITE_GOOGLE_CLIENT_ID=Web application Client ID
+VITE_GOOGLE_DESKTOP_CLIENT_ID=Desktop app Client ID
+VITE_GOOGLE_REDIRECT_URI=https://実際のVercelドメイン/oauth-callback.html
+```
 
-環境変数を埋め込まずに使う場合は、画面の同期表示にある「設定」からClient IDを入力できます。Electronでは併せてVercel上のHTTPSコールバックURIを入力します。Client IDは公開識別子であり秘密情報ではありませんが、クライアントシークレットは入力・保存しないでください。
+OAuth同意画面が`Testing`のままだとrefresh tokenが7日で失効する場合があります。一般配布ではOAuth同意画面を`In production`へ公開し、要求scopeとアプリ情報を整備してください。`drive.appdata`等についてGoogleのverificationが要求された場合は、公開前に審査を完了します。Client IDは公開識別子であり、Story OSはクライアントシークレットを使用・保存しません。
 
 ## Electronデスクトップ版
 

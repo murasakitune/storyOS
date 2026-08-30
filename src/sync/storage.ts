@@ -161,6 +161,59 @@ export async function applyMergedSync(
   };
 }
 
+export async function replaceLocalWithDrive(
+  remote: DriveSyncEnvelope,
+  driveFileId: string,
+) {
+  const physicalNames = SYNC_COLLECTIONS.filter(
+      (name) => !VIRTUAL_COLLECTIONS.has(name),
+    ),
+    tables = [...physicalNames.map((name) => db.table(name)), db.syncMeta],
+    bodies = new Map(
+      remote.collections.sceneBodies.map((item) => [item.id, item]),
+    ),
+    designs = new Map(
+      remote.collections.sceneDesigns.map((item) => [item.id, item]),
+    );
+  syncMutationSuppressed = true;
+  try {
+    await db.transaction("rw", tables, async () => {
+      for (const name of physicalNames) {
+        const table = db.table(name);
+        await table.clear();
+        const records =
+          name === "scenes"
+            ? remote.collections.scenes.map((scene) => {
+                const body = bodies.get(scene.id),
+                  design = designs.get(scene.id);
+                return {
+                  ...scene,
+                  body: String(body?.body || ""),
+                  design: design?.design || {},
+                  bodyUpdatedAt: String(
+                    body?.updatedAt || scene.updatedAt || "",
+                  ),
+                  designUpdatedAt: String(
+                    design?.updatedAt || scene.updatedAt || "",
+                  ),
+                };
+              })
+            : remote.collections[name];
+        if (records.length) await table.bulkPut(records);
+      }
+      await db.syncMeta.put({
+        id: "google-drive",
+        knownIds: idsByCollection(remote.collections),
+        tombstones: remote.tombstones,
+        lastSyncAt: now(),
+        driveFileId,
+      });
+    });
+  } finally {
+    syncMutationSuppressed = false;
+  }
+}
+
 export function observeDatabaseMutations(listener: () => void) {
   const handler = () => {
     if (!syncMutationSuppressed) listener();

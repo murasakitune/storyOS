@@ -12,7 +12,21 @@ const api: ElectronAPI = {
   openBackup: () => ipcRenderer.invoke("file:open-backup"),
   openCharacter: () => ipcRenderer.invoke("file:open-character"),
   openUserData: () => ipcRenderer.invoke("app:open-user-data"),
-  authorizeGoogle: (request) => ipcRenderer.invoke("google:authorize", request),
+  getGoogleAuthStatus: (clientId) =>
+    ipcRenderer.invoke("google:auth-status", clientId),
+  beginGoogleConnection: (clientId) =>
+    ipcRenderer.invoke("google:begin-connection", clientId),
+  commitGoogleConnection: () => ipcRenderer.invoke("google:commit-connection"),
+  cancelGoogleConnection: () => ipcRenderer.invoke("google:cancel-connection"),
+  disconnectGoogle: () => ipcRenderer.invoke("google:disconnect"),
+  findGoogleDriveFile: (usePending) =>
+    ipcRenderer.invoke("google:drive-find", Boolean(usePending)),
+  downloadGoogleDriveFile: (fileId, usePending) =>
+    ipcRenderer.invoke("google:drive-download", fileId, Boolean(usePending)),
+  uploadGoogleDriveFile: (request) =>
+    ipcRenderer.invoke("google:drive-upload", request),
+  saveGoogleSwitchBackup: (content) =>
+    ipcRenderer.invoke("google:save-switch-backup", content),
   onMenuAction(listener) {
     const handler = (_event: Electron.IpcRendererEvent, action: MenuAction) =>
       listener(action);

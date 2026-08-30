@@ -1,5 +1,26 @@
 # Story OS Google Drive同期 実装レポート
 
+## 0.2.8 Google Drive連携の一時休止
+
+- Web版・Electron版のDrive UIを非表示化。
+- `GoogleDriveSync`をアプリからアンマウントし、起動時・10秒デバウンス・visibilitychange・5分間隔・手動同期を停止。
+- Electron mainのGoogle OAuth/Drive IPCを機能フラグで未登録化。
+- 将来復活できるよう同期・OAuth・マージ実装と暗号化済み認証情報は保持。
+- OAuth環境変数がなくても通常ビルド可能。
+
+## 0.2.5 Electron認証永続化
+
+- Electronの旧Implicit FlowをAuthorization Code Flow + PKCEへ置換。
+- システム既定ブラウザと`127.0.0.1`の一時loopback callbackを使用。
+- refresh tokenはElectron mainだけで保持し、`safeStorage`で暗号化して`userData/google-drive-auth.json`へ保存。renderer、LocalStorage、IndexedDB、ログへ公開しない。
+- access tokenはmainのメモリだけで保持し、期限60秒前または401時に一元refresh。同時refresh要求は同じPromiseを共有。
+- `invalid_grant`時は保存資格情報を破棄し、自動同期を止めて未接続へ戻す。ローカル作品は変更しない。
+- 設定画面に接続状態、接続メール、アカウント変更、連携解除を追加。
+- アカウント変更はpending中に同期を停止。新アカウントのDrive確認後、ローカルmergeまたは切替前JSONバックアップ付きDrive置換を選ぶまで認証を確定しない。
+- ElectronのDrive API通信をmainへ移動し、preloadは目的別の限定IPCだけを公開。
+- Web版は従来の短命access token＋sessionStorage方式を維持し、refresh tokenを追加していない。
+- Electron用環境変数`VITE_GOOGLE_DESKTOP_CLIENT_ID`を追加。Google Cloudで種類「デスクトップ アプリ」の別Clientを作成する必要がある。
+
 作成日: 2026-08-17  
 対象バージョン: 0.2.1
 

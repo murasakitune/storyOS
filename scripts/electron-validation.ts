@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [main, preload, renderer, bootstrap, syncUi, pkgText] = await Promise.all(
-  [
+const [main, preload, renderer, bootstrap, syncUi, auth, pkgText] =
+  await Promise.all([
     readFile("electron/main.ts", "utf8"),
     readFile("electron/preload.ts", "utf8"),
     readFile("src/App.tsx", "utf8"),
     readFile("src/main.tsx", "utf8"),
     readFile("src/sync/google-drive.ts", "utf8"),
+    readFile("electron/google-auth.ts", "utf8"),
     readFile("package.json", "utf8"),
-  ],
-);
+  ]);
 const pkg = JSON.parse(pkgText) as {
   main?: string;
   build?: { appId?: string; nsis?: { deleteAppDataOnUninstall?: boolean } };
@@ -25,12 +25,25 @@ assert.match(main, /setWindowOpenHandler/);
 assert.match(main, /Content-Security-Policy/);
 assert.match(main, /registerSchemesAsPrivileged/);
 assert.match(main, /Story OS Development/);
+assert.match(main, /STORYOS_SMOKE_USER_DATA/);
+assert.match(main, /GOOGLE_DRIVE_ENABLED = false/);
 assert.match(main, /preload\.cjs/);
 assert.match(preload, /contextBridge\.exposeInMainWorld/);
 assert.doesNotMatch(preload, /\b(exec|spawn|eval)\s*\(/);
 assert.match(bootstrap, /import\.meta\.env\.PROD/);
 assert.match(bootstrap, /registration\.unregister\(\)/);
 assert.doesNotMatch(syncUi, /\bprompt\s*\(/);
+assert.match(auth, /safeStorage/);
+assert.match(auth, /code_challenge/);
+assert.match(
+  await readFile("scripts/prepare-electron-dist.mjs", "utf8"),
+  /google-auth.*google-drive.*oauth-helpers/,
+);
+assert.match(
+  await readFile("scripts/prepare-electron-dist.mjs", "utf8"),
+  /GOOGLE_DESKTOP_CLIENT_SECRET/,
+);
+assert.doesNotMatch(preload, /accessToken|refreshToken/);
 assert.match(
   renderer,
   /to=\{`\/works\/\$\{work\.id\}\/\$\{String\(path\)\}`\}/,

@@ -1,7 +1,7 @@
 {
   "name": "story-os",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.8",
   "description": "オフラインで動作する小説執筆支援アプリ",
   "main": "dist-electron/electron/main.cjs",
   "type": "module",
@@ -15,6 +15,7 @@
     "test:electron": "tsx scripts/electron-validation.ts",
     "test:character-sheet": "tsx scripts/character-sheet-validation.ts",
     "test:sync": "tsx scripts/sync-validation.ts",
+    "test:oauth": "tsx scripts/oauth-validation.ts",
     "electron:compile": "tsc -p tsconfig.electron.json && node scripts/prepare-electron-dist.mjs",
     "electron:icon": "node scripts/create-electron-icon.mjs",
     "electron:watch": "tsc -p tsconfig.electron.json --watch --preserveWatchOutput",

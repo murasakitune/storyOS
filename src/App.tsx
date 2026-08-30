@@ -67,7 +67,6 @@ import { PlotPage, ReferencePage, SceneDesignModal } from "./Stage2";
 import { CommandPalette, CompletionDialog, QualityHub } from "./Stage3";
 import { filePort, environment } from "./services/platform";
 import { createSnapshot } from "./services/snapshots";
-import { GoogleDriveSync } from "./sync/GoogleDriveSync";
 
 const fmt = (iso: string) =>
   new Intl.DateTimeFormat("ja-JP", {
@@ -151,11 +150,6 @@ function App() {
     () => localStorage.getItem("storyos-theme") || "dark",
   );
   const [dbError, setDbError] = useState("");
-  const [syncRevision, setSyncRevision] = useState(0);
-  const handleSyncDataChanged = useCallback(
-    () => setSyncRevision((value) => value + 1),
-    [],
-  );
   const [updateReady, setUpdateReady] = useState(false),
     [showGuide, setShowGuide] = useState(
       () => !localStorage.getItem("storyos-guide-seen"),
@@ -215,8 +209,7 @@ function App() {
       >
         {theme === "dark" ? <Sun /> : <Moon />}
       </button>
-      <GoogleDriveSync onDataChanged={handleSyncDataChanged} />
-      <Routes key={syncRevision}>
+      <Routes>
         <Route path="/" element={<Library />} />
         <Route path="/works/:workId/*" element={<WorkShell />} />
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -340,32 +333,29 @@ function Library() {
     <main className="library page">
       <header className="library-head">
         <div>
-          <div className="brand">
-            <span>Story</span> OS
+          <div className="brand">Story OS</div>
+        </div>
+        <section className="toolbar">
+          <div className="search">
+            <Search />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="作品を検索"
+            />
           </div>
-          <p>物語を、静かに組み立てる。</p>
-        </div>
-        <Button className="primary" onClick={add}>
-          <Plus />
-          新しい作品
-        </Button>
+          <select value={sort} onChange={(e) => setSort(e.target.value)}>
+            <option value="updatedAt-desc">更新日時（新しい順）</option>
+            <option value="createdAt-desc">作成日時（新しい順）</option>
+            <option value="title-asc">タイトル（昇順）</option>
+            <option value="title-desc">タイトル（降順）</option>
+          </select>
+          <Button className="primary" onClick={add}>
+            <Plus />
+            新しい作品
+          </Button>
+        </section>
       </header>
-      <section className="toolbar">
-        <div className="search">
-          <Search />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="作品を検索"
-          />
-        </div>
-        <select value={sort} onChange={(e) => setSort(e.target.value)}>
-          <option value="updatedAt-desc">更新日時（新しい順）</option>
-          <option value="createdAt-desc">作成日時（新しい順）</option>
-          <option value="title-asc">タイトル（昇順）</option>
-          <option value="title-desc">タイトル（降順）</option>
-        </select>
-      </section>
       {shown.length === 0 ? (
         <Empty
           title={
@@ -388,63 +378,50 @@ function Library() {
           }
         />
       ) : (
-        <div className="work-grid">
+        <div className="work-list">
           {shown.map((w) => (
             <article
-              className="work-card"
+              className="work-row"
               key={w.id}
               onClick={() => nav(`/works/${w.id}/home`)}
             >
-              <div className="card-top">
+              <div className="work-row-primary">
                 <span className={`status s-${w.status}`}>{w.status}</span>
-                <button
-                  className="icon"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    rename(w);
-                  }}
-                  title="作品名を変更"
-                >
-                  <MoreVertical />
-                </button>
-              </div>
-              <h2>{w.title}</h2>
-              <p className="tagline">
-                {w.tagline || "キャッチコピーは未設定です"}
-              </p>
-              <div className="metrics">
-                <span>
-                  <b>{(counts[w.id]?.chars || 0).toLocaleString()}</b> 文字
-                </span>
-                <span>
-                  <b>{counts[w.id]?.chapters || 0}</b> 章
-                </span>
-                <span>
-                  <b>{counts[w.id]?.scenes || 0}</b> シーン
-                </span>
-              </div>
-              <footer>
-                <span>最終編集 {fmt(w.lastEditedAt)}</span>
-                <div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void duplicate(w.id);
-                    }}
-                  >
-                    複製
-                  </button>
-                  <button
-                    className="danger-text"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void remove(w);
-                    }}
-                  >
-                    削除
-                  </button>
+                <h2>{w.title}</h2>
+                <div className="metrics">
+                  <span>
+                    <b>{(counts[w.id]?.chars || 0).toLocaleString()}</b>字
+                  </span>
+                  <span>
+                    <b>{counts[w.id]?.chapters || 0}</b>章
+                  </span>
+                  <span>
+                    <b>{counts[w.id]?.scenes || 0}</b>シーン
+                  </span>
                 </div>
-              </footer>
+                <details
+                  className="work-actions"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <summary className="icon" title="作品の操作">
+                    <MoreVertical />
+                  </summary>
+                  <div>
+                    <button onClick={() => void rename(w)}>名前を変更</button>
+                    <button onClick={() => void duplicate(w.id)}>複製</button>
+                    <button
+                      className="danger-text"
+                      onClick={() => void remove(w)}
+                    >
+                      削除
+                    </button>
+                  </div>
+                </details>
+              </div>
+              <div className="work-row-secondary">
+                <p>{w.tagline || w.synopsis || "概要未設定"}</p>
+                <time>最終編集 {fmt(w.lastEditedAt)}</time>
+              </div>
             </article>
           ))}
         </div>
@@ -1553,34 +1530,36 @@ function Writer({
         {draft ? (
           <div className="editor-wrap">
             <div className="scene-fields">
-              <input
-                className="scene-title-input"
-                value={draft.title}
-                onChange={(e) => edit("title", e.target.value)}
-                placeholder="シーンタイトル"
-              />
-              <select
-                value={draft.status}
-                onChange={(e) =>
-                  edit("status", e.target.value as Scene["status"])
-                }
-              >
-                {SCENE_STATUSES.map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </select>
+              <div className="scene-heading-row">
+                <input
+                  className="scene-title-input"
+                  value={draft.title}
+                  onChange={(e) => edit("title", e.target.value)}
+                  placeholder="シーンタイトル"
+                />
+                <select
+                  value={draft.status}
+                  onChange={(e) =>
+                    edit("status", e.target.value as Scene["status"])
+                  }
+                >
+                  {SCENE_STATUSES.map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
+                </select>
+                <button
+                  className="button scene-design-button"
+                  onClick={() => setDesignOpen(true)}
+                >
+                  設計
+                </button>
+              </div>
               <textarea
                 value={draft.summary}
                 onChange={(e) => edit("summary", e.target.value)}
                 placeholder="このシーンのあらすじ"
                 rows={2}
               />
-              <button
-                className="button scene-design-button"
-                onClick={() => setDesignOpen(true)}
-              >
-                シーン設計を開く
-              </button>
             </div>
             <div className="manuscript-shell">
               {findOpen && (
